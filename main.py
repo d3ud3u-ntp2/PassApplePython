@@ -81,9 +81,26 @@ def apply_bulge_effect(image, bounding_box):
         
     return Image.fromarray(output_array)
 
-def create_masked_overlay(background_path, target_path, mask_path, output_dir):
+def load_bounding_box(path):
     """
-    1. Detects bounding box from mask_path (apple_input).
+    Reads min_x, min_y, max_x, max_y from a text file.
+    Supports comma or space separated values.
+    """
+    if not os.path.exists(path):
+        return None
+    try:
+        with open(path, 'r') as f:
+            content = f.read().strip().replace(',', ' ')
+            coords = [int(v) for v in content.split()]
+            if len(coords) == 4:
+                return tuple(coords)
+    except Exception as e:
+        print(f"Warning: Failed to read bounding box from {path}: {e}")
+    return None
+
+def create_masked_overlay(background_path, target_path, mask_path, output_dir, bbox_path=None):
+    """
+    1. Detects bounding box from bbox_path (bounding_box.txt) or mask_path.
     2. Bulges both mask_path (apple_input) and target_path (apple_yake).
     3. Uses the bulged grayscale mask_path as the alpha channel for both layers.
     4. Composites all on top of background_path (apple_before).
@@ -103,19 +120,27 @@ def create_masked_overlay(background_path, target_path, mask_path, output_dir):
              Image.open(target_path) as target_img, \
              Image.open(background_path) as bg_img:
             
-            # Detect Bounding Box from apple_input
-            # (Using numpy for fast calculation)
-            mask_gray_orig = mask_img.convert("L")
-            mask_np = np.array(mask_gray_orig)
-            coords = np.argwhere(mask_np >= 10) # Lower threshold to capture gradients
+            # --- Determine Bounding Box ---
+            bbox = None
+            if bbox_path:
+                bbox = load_bounding_box(bbox_path)
+                if bbox:
+                    print(f"Using bounding box from file: {bbox}")
             
-            if coords.size == 0:
-                print("Error: No apple shape found.")
-                return
+            if not bbox:
+                # Fall back to automatic detection from apple_input
+                mask_gray_orig = mask_img.convert("L")
+                mask_np = np.array(mask_gray_orig)
+                coords = np.argwhere(mask_np >= 10)
                 
-            min_y, min_x = coords.min(axis=0)
-            max_y, max_x = coords.max(axis=0)
-            bbox = (min_x, min_y, max_x, max_y)
+                if coords.size == 0:
+                    print("Error: No apple shape found for automatic bounding box detection.")
+                    return
+                    
+                min_y, min_x = coords.min(axis=0)
+                max_y, max_x = coords.max(axis=0)
+                bbox = (min_x, min_y, max_x, max_y)
+                print(f"Detected bounding box automatically: {bbox}")
 
             # --- Layer 1: Bulged Original Apple (from apple_input) ---
             if _SCIPY_AVAILABLE:
@@ -151,7 +176,7 @@ def create_masked_overlay(background_path, target_path, mask_path, output_dir):
             final_composition.paste(clipped_yake_rgba, (0, 0), clipped_yake_rgba)
 
             final_composition.save(output_path, "PNG")
-            print(f"Success: Grayscale alpha 3D overlay saved to {output_path}")
+            print(f"Success: Bounding box coordinated 3D overlay saved to {output_path}")
                 
     except Exception as e:
         print(f"An error occurred: {e}")
@@ -160,5 +185,7 @@ if __name__ == "__main__":
     bg_file = os.path.join("dist", "apple_before.jpg")
     target_file = os.path.join("dist", "apple_yake.jpg")
     mask_file = os.path.join("input", "apple_input.jpg")
+    bbox_file = os.path.join("input", "bounding_box.txt") # External bbox file
+    
     output_dir = "output"
-    create_masked_overlay(bg_file, target_file, mask_file, output_dir)
+    create_masked_overlay(bg_file, target_file, mask_file, output_dir, bbox_file)
