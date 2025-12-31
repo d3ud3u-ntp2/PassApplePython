@@ -12,14 +12,15 @@ except ImportError:
     _SCIPY_AVAILABLE = False
     print("Warning: scipy not found. Advanced image transformations (like 3D bulge) will be disabled.")
 
-def apply_bulge_effect(image, bounding_box):
+def apply_bulge_effect(image, bounding_box, strength=0.7):
     """
     Applies a 3D bulge (spherical) effect to the image within the bounding box.
+    'strength' controls the intensity of the bulge (0.0 to 1.0).
     """
     if not _SCIPY_AVAILABLE:
         print("Error: scipy is not available, cannot apply bulge effect.")
-        return image # Return original image if scipy is missing
-
+        return image
+    
     width, height = image.size
     min_x, min_y, max_x, max_y = bounding_box
     
@@ -28,38 +29,29 @@ def apply_bulge_effect(image, bounding_box):
     radius_x = (max_x - min_x) / 2
     radius_y = (max_y - min_y) / 2
     
-    # Create coordinate grids
     x = np.arange(width)
     y = np.arange(height)
     xv, yv = np.meshgrid(x, y)
     
-    # Normalize coordinates relative to center and radius
-    # (dx, dy) will be in range [-1, 1] within the ellipse
     dx = (xv - center_x) / radius_x
     dy = (yv - center_y) / radius_y
     
-    # Calculate distance from center in normalized space
     dist_sq = dx**2 + dy**2
     mask = dist_sq <= 1.0
     
-    # Initialize output maps
     map_x = xv.astype(np.float32)
     map_y = yv.astype(np.float32)
     
-    # Apply spherical transformation (Bulge effect)
-    # The math: maps a flat point to a spherical surface
-    # r_new = r_old / sqrt(1 - r_old^2) is one way, but we'll use a simpler power-based bulge
-    # or a true spherical projection: sin(r * pi/2)
     dist = np.sqrt(dist_sq[mask])
     
-    # Transformation factor: points near center move less, points near edge move more "inward"
-    # to simulate the stretch of a sphere being flattened.
-    # Actually, for a "bulge" looking out, we want the center pixels to be MAGNIFIED.
-    
-    # Avoid division by zero for dist=0 (center pixel)
+    # Standard spherical projection factor
     factor = np.ones_like(dist)
     non_zero_dist_mask = dist > 0
-    factor[non_zero_dist_mask] = np.arcsin(dist[non_zero_dist_mask]) / (dist[non_zero_dist_mask] * (np.pi / 2))
+    # Calculate full distortion factor
+    full_factor = np.arcsin(dist[non_zero_dist_mask]) / (dist[non_zero_dist_mask] * (np.pi / 2))
+    
+    # Interpolate between 1.0 (no distortion) and full_factor based on strength
+    factor[non_zero_dist_mask] = 1.0 + (full_factor - 1.0) * strength
     
     new_dx = dx[mask] * factor
     new_dy = dy[mask] * factor
@@ -115,7 +107,8 @@ def create_masked_overlay(background_path, target_path, mask_path, output_dir, b
         return
 
     os.makedirs(output_dir, exist_ok=True)
-    date_str = datetime.now().strftime("%y%m%d")
+    # Generate dynamic filename: apple[YYMMDDHHIISS][randomnumber].png
+    date_str = datetime.now().strftime("%y%m%d%H%M%S")
     random_num = random.randint(1000, 9999)
     filename = f"apple{date_str}{random_num}.png"
     output_path = os.path.join(output_dir, filename)
@@ -129,59 +122,48 @@ def create_masked_overlay(background_path, target_path, mask_path, output_dir, b
             bbox = None
             if bbox_path:
                 bbox = load_bounding_box(bbox_path)
-                if bbox:
-                    print(f"Using bounding box from file: {bbox}")
             
             if not bbox:
-                # Fall back to automatic detection from apple_input
                 mask_gray_orig = mask_img.convert("L")
                 mask_np = np.array(mask_gray_orig)
                 coords = np.argwhere(mask_np >= 10)
-                
                 if coords.size == 0:
-                    print("Error: No apple shape found for automatic bounding box detection.")
+                    print("Error: No apple shape found.")
                     return
-                    
                 min_y, min_x = coords.min(axis=0)
                 max_y, max_x = coords.max(axis=0)
                 bbox = (min_x, min_y, max_x, max_y)
-                print(f"Detected bounding box automatically: {bbox}")
 
-            # --- Layer 1: Bulged Original Apple (from apple_input) ---
+            # 1. apple_inputを球形に (Bulge apple_input to create the alpha mask)
             if _SCIPY_AVAILABLE:
-                bulged_apple = apply_bulge_effect(mask_img.convert("RGB"), bbox)
+                bulged_apple = apply_bulge_effect(mask_img.convert("RGB"), bbox, strength=0.7)
             else:
                 bulged_apple = mask_img.convert("RGB")
-
-            # Use bulged grayscale version as its own alpha channel
-            bulged_apple_gray = bulged_apple.convert("L")
-            # Apply slight anti-aliasing to the mask
-            bulged_apple_gray = bulged_apple_gray.filter(ImageFilter.GaussianBlur(radius=0.5))
             
-            bulged_apple_rgba = bulged_apple.convert("RGBA")
-            bulged_apple_rgba.putalpha(bulged_apple_gray)
+            # Extract grayscale as the alpha mask
+            # Using the original grayscale gradients directly as requested
+            alpha_mask = bulged_apple.convert("L")
 
-            # --- Layer 2: Bulged Yake Texture (from apple_yake) ---
+            # 2. apple_yakeにマスキング (Bulge apple_yake and apply the mask)
             if _SCIPY_AVAILABLE:
-                bulged_yake = apply_bulge_effect(target_img.convert("RGB"), bbox)
+                bulged_yake = apply_bulge_effect(target_img.convert("RGB"), bbox, strength=0.7)
             else:
                 bulged_yake = target_img.convert("RGB")
+            
+            bulged_yake_rgba = bulged_yake.convert("RGBA")
+            bulged_yake_rgba.putalpha(alpha_mask)
 
-            # Use the SAME bulged grayscale mask as alpha channel for yake
-            clipped_yake_rgba = bulged_yake.convert("RGBA")
-            clipped_yake_rgba.putalpha(bulged_apple_gray)
+            # 3. apple_yakeのアンチエイリアシング (Removed/Disabled)
+            # We no longer apply blur to the alpha channel.
+            # (Keeping the variable name for consistent composition code below)
+            bulged_yake_rgba = bulged_yake_rgba
 
-            # --- Final Composition ---
+            # 4. apple_beforeと合成 (Composite onto the background)
             final_composition = bg_img.convert("RGBA")
-            
-            # Paste bulged original apple (Layer 1)
-            final_composition.paste(bulged_apple_rgba, (0, 0), bulged_apple_rgba)
-            
-            # Paste bulged yake texture (Layer 2)
-            final_composition.paste(clipped_yake_rgba, (0, 0), clipped_yake_rgba)
+            final_composition.paste(bulged_yake_rgba, (0, 0), bulged_yake_rgba)
 
             final_composition.save(output_path, "PNG")
-            print(f"Success: Bounding box coordinated 3D overlay saved to {output_path}")
+            print(f"Success: Sequentially processed 3D composition saved to {output_path}")
                 
     except Exception as e:
         print(f"An error occurred: {e}")
