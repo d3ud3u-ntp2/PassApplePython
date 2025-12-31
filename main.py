@@ -1,41 +1,56 @@
 import os
 from PIL import Image, ImageOps
 
-def remove_black_background(input_path, output_path):
+def overlay_transparent_apple(background_path, overlay_path, output_path):
     """
-    Reads an image, removes black pixels (makes them transparent), and saves it as a PNG.
+    Removes black background from overlay image and places it on top of the background image.
     """
-    if not os.path.exists(input_path):
-        print(f"Error: Input file {input_path} not found.")
+    if not os.path.exists(background_path):
+        print(f"Error: Background file {background_path} not found.")
+        return
+    if not os.path.exists(overlay_path):
+        print(f"Error: Overlay file {overlay_path} not found.")
         return
 
     # Create output directory if it doesn't exist
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
 
     try:
-        with Image.open(input_path) as img:
-            # Ensure image is in RGBA mode for transparency
-            img = img.convert("RGBA")
-            datas = img.getdata()
+        # 1. Process the overlay image (remove black background)
+        with Image.open(overlay_path) as overlay_img:
+            overlay_img = overlay_img.convert("RGBA")
+            datas = overlay_img.getdata()
 
             new_data = []
             for item in datas:
                 # If pixel is black (or very close to black), make it transparent
-                # Threshold for "black" set to 30 to catch near-black compression artifacts
                 if item[0] < 30 and item[1] < 30 and item[2] < 30:
                     new_data.append((0, 0, 0, 0))
                 else:
                     new_data.append(item)
+            overlay_img.putdata(new_data)
 
-            img.putdata(new_data)
-            img.save(output_path, "PNG")
-            print(f"Success: Background removed image saved to {output_path}")
+            # 2. Open the background image
+            with Image.open(background_path) as bg_img:
+                bg_img = bg_img.convert("RGBA")
+                
+                # Center the overlay if dimensions differ, or just paste at (0,0)
+                # For this task, we'll paste at (0, 0) as usually these pairs are aligned
+                bg_img.paste(overlay_img, (0, 0), overlay_img)
+                
+                # Save as PNG to preserve quality/layers or JPG if preferred
+                # User asked for transparent result previously, but overlaying on JPG makes it final.
+                # Saving as PNG to be safe.
+                bg_img.save(output_path, "PNG")
+                print(f"Success: Overlay image saved to {output_path}")
+                
     except Exception as e:
         print(f"An error occurred: {e}")
 
 if __name__ == "__main__":
     # Default paths
-    input_file = os.path.join("input", "apple_input.jpg")
-    output_file = os.path.join("dist", "apple_before.png")
+    bg_file = os.path.join("dist", "apple_before.jpg")
+    overlay_file = os.path.join("input", "apple_input.jpg")
+    output_file = os.path.join("dist", "apple_overlay.png")
 
-    remove_black_background(input_file, output_file)
+    overlay_transparent_apple(bg_file, overlay_file, output_file)
