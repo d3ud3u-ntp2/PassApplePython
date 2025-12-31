@@ -13,8 +13,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy the rest of the application code
 COPY main.py .
 
-# Create input and output directories
-RUN mkdir input output
+# Create input, output, and dist directories
+RUN mkdir input output dist
 
 # Run main.py when the container launches
 CMD ["python", "main.py"]
