@@ -3,16 +3,20 @@ import random
 from datetime import datetime
 from PIL import Image, ImageOps
 
-def overlay_transparent_apple(background_path, overlay_path, output_dir):
+def create_masked_overlay(background_path, target_path, mask_path, output_dir):
     """
-    Removes black background from overlay image and places it on top of the background image.
-    Generates a filename with current date and a random number.
+    1. Clips target_path using mask_path (black = transparent).
+    2. Overlays the clipped result onto background_path.
+    3. Saves with a dynamic filename.
     """
     if not os.path.exists(background_path):
         print(f"Error: Background file {background_path} not found.")
         return
-    if not os.path.exists(overlay_path):
-        print(f"Error: Overlay file {overlay_path} not found.")
+    if not os.path.exists(target_path):
+        print(f"Error: Target file {target_path} not found.")
+        return
+    if not os.path.exists(mask_path):
+        print(f"Error: Mask file {mask_path} not found.")
         return
 
     # Create output directory if it doesn't exist
@@ -25,30 +29,34 @@ def overlay_transparent_apple(background_path, overlay_path, output_dir):
     output_path = os.path.join(output_dir, filename)
 
     try:
-        # 1. Process the overlay image (remove black background)
-        with Image.open(overlay_path) as overlay_img:
-            overlay_img = overlay_img.convert("RGBA")
-            datas = overlay_img.getdata()
-
-            new_data = []
-            for item in datas:
-                # If pixel is black (or very close to black), make it transparent
-                if item[0] < 30 and item[1] < 30 and item[2] < 30:
-                    new_data.append((0, 0, 0, 0))
+        # 1. Open all images
+        with Image.open(mask_path) as mask_img, \
+             Image.open(target_path) as target_img, \
+             Image.open(background_path) as bg_img:
+            
+            # 2. Create the mask (black = 0, non-black = 255)
+            mask_l = mask_img.resize(target_img.size).convert("L")
+            mask_data = mask_l.getdata()
+            new_mask_data = []
+            for pixel in mask_data:
+                if pixel < 30: # Threshold for black
+                    new_mask_data.append(0)
                 else:
-                    new_data.append(item)
-            overlay_img.putdata(new_data)
+                    new_mask_data.append(255)
+            mask_l.putdata(new_mask_data)
 
-            # 2. Open the background image
-            with Image.open(background_path) as bg_img:
-                bg_img = bg_img.convert("RGBA")
-                
-                # Paste the transparent apple at (0, 0)
-                bg_img.paste(overlay_img, (0, 0), overlay_img)
-                
-                # Save as PNG
-                bg_img.save(output_path, "PNG")
-                print(f"Success: Dynamic overlay image saved to {output_path}")
+            # 3. Clip the target image
+            clipped_img = target_img.convert("RGBA")
+            clipped_img.putalpha(mask_l)
+
+            # 4. Overlay onto background
+            bg_rgba = bg_img.convert("RGBA")
+            # Paste at (0, 0) - assuming they are aligned
+            bg_rgba.paste(clipped_img, (0, 0), clipped_img)
+
+            # 5. Save as PNG
+            bg_rgba.save(output_path, "PNG")
+            print(f"Success: Masked overlay image saved to {output_path}")
                 
     except Exception as e:
         print(f"An error occurred: {e}")
@@ -56,9 +64,10 @@ def overlay_transparent_apple(background_path, overlay_path, output_dir):
 if __name__ == "__main__":
     # Input paths
     bg_file = os.path.join("dist", "apple_before.jpg")
-    overlay_file = os.path.join("input", "apple_input.jpg")
+    target_file = os.path.join("dist", "apple_yake.jpg")
+    mask_file = os.path.join("input", "apple_input.jpg")
     
     # Output directory
     output_dir = "output"
 
-    overlay_transparent_apple(bg_file, overlay_file, output_dir)
+    create_masked_overlay(bg_file, target_file, mask_file, output_dir)
