@@ -84,16 +84,21 @@ def apply_bulge_effect(image, bounding_box):
 def load_bounding_box(path):
     """
     Reads min_x, min_y, max_x, max_y from a text file.
-    Supports comma or space separated values.
+    Skips lines starting with # and parses comma or space separated values.
     """
     if not os.path.exists(path):
         return None
     try:
         with open(path, 'r') as f:
-            content = f.read().strip().replace(',', ' ')
-            coords = [int(v) for v in content.split()]
-            if len(coords) == 4:
-                return tuple(coords)
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith('#'):
+                    continue
+                # Replace commas with spaces and split
+                parts = line.replace(',', ' ').split()
+                coords = [int(v) for v in parts]
+                if len(coords) == 4:
+                    return tuple(coords)
     except Exception as e:
         print(f"Warning: Failed to read bounding box from {path}: {e}")
     return None
