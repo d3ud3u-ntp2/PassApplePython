@@ -1,9 +1,12 @@
 import os
+import random
+from datetime import datetime
 from PIL import Image, ImageOps
 
-def overlay_transparent_apple(background_path, overlay_path, output_path):
+def overlay_transparent_apple(background_path, overlay_path, output_dir):
     """
     Removes black background from overlay image and places it on top of the background image.
+    Generates a filename with current date and a random number.
     """
     if not os.path.exists(background_path):
         print(f"Error: Background file {background_path} not found.")
@@ -13,7 +16,13 @@ def overlay_transparent_apple(background_path, overlay_path, output_path):
         return
 
     # Create output directory if it doesn't exist
-    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    os.makedirs(output_dir, exist_ok=True)
+
+    # Generate dynamic filename: apple[YYMMDD][randomnumber].png
+    date_str = datetime.now().strftime("%y%m%d")
+    random_num = random.randint(1000, 9999)
+    filename = f"apple{date_str}{random_num}.png"
+    output_path = os.path.join(output_dir, filename)
 
     try:
         # 1. Process the overlay image (remove black background)
@@ -34,23 +43,22 @@ def overlay_transparent_apple(background_path, overlay_path, output_path):
             with Image.open(background_path) as bg_img:
                 bg_img = bg_img.convert("RGBA")
                 
-                # Center the overlay if dimensions differ, or just paste at (0,0)
-                # For this task, we'll paste at (0, 0) as usually these pairs are aligned
+                # Paste the transparent apple at (0, 0)
                 bg_img.paste(overlay_img, (0, 0), overlay_img)
                 
-                # Save as PNG to preserve quality/layers or JPG if preferred
-                # User asked for transparent result previously, but overlaying on JPG makes it final.
-                # Saving as PNG to be safe.
+                # Save as PNG
                 bg_img.save(output_path, "PNG")
-                print(f"Success: Overlay image saved to {output_path}")
+                print(f"Success: Dynamic overlay image saved to {output_path}")
                 
     except Exception as e:
         print(f"An error occurred: {e}")
 
 if __name__ == "__main__":
-    # Default paths
+    # Input paths
     bg_file = os.path.join("dist", "apple_before.jpg")
     overlay_file = os.path.join("input", "apple_input.jpg")
-    output_file = os.path.join("dist", "apple_overlay.png")
+    
+    # Output directory
+    output_dir = "output"
 
-    overlay_transparent_apple(bg_file, overlay_file, output_file)
+    overlay_transparent_apple(bg_file, overlay_file, output_dir)
